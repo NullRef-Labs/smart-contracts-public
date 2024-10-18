@@ -633,11 +633,11 @@ contract Trend is IERC20, Auth {
     }
     
     function setTransferOutLimitPeriod(uint256 _period) external onlyOwner {
-        m_TransferOutAmountForPeriod = _period;
+        m_TransferOutLimitPeriod = _period;
     }
 
     function transferOutLimitPeriod() external view returns (uint256) {
-        return m_TransferOutAmountForPeriod;
+        return m_TransferOutLimitPeriod;
     }
     
     function setTransferOutLimit(uint256 _limit) external onlyOwner {
