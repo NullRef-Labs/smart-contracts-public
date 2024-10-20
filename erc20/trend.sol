@@ -67,23 +67,27 @@ interface IERC20 {
  */
 abstract contract Auth {
     address internal m_Owner;
+    mapping(address => bool) internal m_Admins;
+    
+    event OwnershipTransferred(address _owner);
+    event AdminStatusChanged(address _admin, bool _status);
 
     constructor(address _owner) {
         m_Owner = _owner;
+        setAdminStatus(m_Owner, true);
     }
 
     /**
      * Function modifier to require caller to be contract deployer
      */
     modifier onlyOwner() {
-        require(isOwner(msg.sender), "!Owner"); _;
+        require(msg.sender == m_Owner, "!Owner"); 
+        _;
     }
 
-    /**
-     * Check if address is owner
-     */
-    function isOwner(address _account) public view returns (bool) {
-        return _account == m_Owner;
+    modifier onlyAdmin() {
+        require(m_Admins[msg.sender], "!Admin");
+        _;
     }
 
     /**
@@ -94,7 +98,9 @@ abstract contract Auth {
         emit OwnershipTransferred(_addr);
     }
 
-    event OwnershipTransferred(address _owner);
+    function setAdminStatus(address _admin, bool _status) public onlyOwner {
+        m_Admins[_admin] = _status;
+    }
 }
 
 interface IDEXFactory {
@@ -159,7 +165,6 @@ contract DividendDistributor is IDividendDistributor {
     using SafeMath for uint256;
 
     address private m_Token;
-    address private m_Owner;
 
     struct Share {
         uint256 amount;
@@ -178,16 +183,12 @@ contract DividendDistributor is IDividendDistributor {
     uint256 private m_DividendsPerShareAccuracyFactor = 10 ** 36;
 
     modifier onlyToken() {
-        require(msg.sender == m_Token); _;
-    }
-    
-    modifier onlyOwner() {
-        require(msg.sender == m_Owner); _;
+        require(msg.sender == m_Token); 
+        _;
     }
 
-    constructor (address _owner) {
+    constructor () {
         m_Token = msg.sender;
-        m_Owner = _owner;
     }
 
     function setShare(address _shareholder, uint256 _amount) external override onlyToken {
@@ -248,6 +249,14 @@ contract DividendDistributor is IDividendDistributor {
         return _share.mul(m_DividendsPerShare).div(m_DividendsPerShareAccuracyFactor);
     }
 
+    function getShareholderRealizedEarnings(address _shareholder) external view returns (uint256) {
+        return m_Shares[_shareholder].totalRealised;
+    }
+
+    function getTotalDistributed() external view returns (uint256) {
+        return m_TotalDistributed;
+    }
+
     function addShareholder(address _shareholder) internal {
         m_ShareholderIndexes[_shareholder] = m_Shareholders.length;
         m_Shareholders.push(_shareholder);
@@ -257,11 +266,6 @@ contract DividendDistributor is IDividendDistributor {
         m_Shareholders[m_ShareholderIndexes[_shareholder]] = m_Shareholders[m_Shareholders.length-1];
         m_ShareholderIndexes[m_Shareholders[m_Shareholders.length-1]] = m_ShareholderIndexes[_shareholder];
         m_Shareholders.pop();
-    }
-    
-    function manualSend(uint256 _amount, address _holder) external onlyOwner {
-        uint256 _contractETHBalance = address(this).balance;
-        payable(_holder).transfer(_amount > 0 ? _amount : _contractETHBalance);
     }
 }
 
@@ -335,7 +339,7 @@ contract Trend is IERC20, Auth {
         
         m_Allowances[address(this)][address(m_Router)] = type(uint256).max;
 
-        m_Distributor = new DividendDistributor(_owner);
+        m_Distributor = new DividendDistributor();
 
         m_IsFeeExempt[_owner] = true;
         m_IsFeeExempt[_teamWallet] = true;
@@ -437,8 +441,7 @@ contract Trend is IERC20, Auth {
     }
 
     function _checkTransferOutLimit(address _sender, uint256 _amount) internal {
-        bool _isBuy = _isPair(_sender);
-        if (_isBuy) return;
+        if (_isPair(_sender)) return;
 
         if (block.timestamp > m_TransferOutLimitExpiration[_sender]) {
             m_TransferOutLimitExpiration[_sender] = block.timestamp + m_TransferOutLimitPeriod;
@@ -536,7 +539,7 @@ contract Trend is IERC20, Auth {
         return m_Pairs[_addr];
     }
 
-    function updatePair(address _pair, bool _status) external onlyOwner {
+    function updatePair(address _pair, bool _status) external onlyAdmin {
         m_Pairs[_pair] = _status;
         m_IsDividendExempt[_pair] = _status;
     }
@@ -545,25 +548,25 @@ contract Trend is IERC20, Auth {
         return m_Pair;
     }
     
-    function setInitialBlockLimit(uint256 _blocks) external onlyOwner {
+    function setInitialBlockLimit(uint256 _blocks) external onlyAdmin {
         require(_blocks > 0, "Blocks should be greater than 0");
         m_InitialBlockLimit = _blocks;
     }
 
-    function setBuyTxLimit(uint256 _amount) external onlyOwner {
+    function setBuyTxLimit(uint256 _amount) external onlyAdmin {
         m_MaxBuyAmount = _amount;
     }
     
-    function setSellTxLimit(uint256 _amount) external onlyOwner {
+    function setSellTxLimit(uint256 _amount) external onlyAdmin {
         m_MaxSellAmount = _amount;
     }
     
-    function setBot(address _address, bool _toggle) external onlyOwner {
+    function setBot(address _address, bool _toggle) external onlyAdmin {
         m_IsBot[_address] = _toggle;
         _setIsDividendExempt(_address, _toggle);
     }
     
-    function isInBot(address _address) external view onlyOwner returns (bool) {
+    function isBot(address _address) external view onlyAdmin returns (bool) {
         return m_IsBot[_address];
     }
     
@@ -577,19 +580,19 @@ contract Trend is IERC20, Auth {
         }
     }
 
-    function setIsDividendExempt(address _holder, bool _exempt) external onlyOwner {
+    function setIsDividendExempt(address _holder, bool _exempt) external onlyAdmin {
         _setIsDividendExempt(_holder, _exempt);
     }
 
-    function setIsFeeExempt(address _holder, bool _exempt) external onlyOwner {
+    function setIsFeeExempt(address _holder, bool _exempt) external onlyAdmin {
         m_IsFeeExempt[_holder] = _exempt;
     }
 
-    function setIsTxLimitExempt(address _holder, bool _exempt) external onlyOwner {
+    function setIsTxLimitExempt(address _holder, bool _exempt) external onlyAdmin {
         m_IsTxLimitExempt[_holder] = _exempt;
     }
 
-    function setFees(uint256 _reflectionFee, uint256 _teamFee, uint256 _feeDenominator) external onlyOwner {
+    function setFees(uint256 _reflectionFee, uint256 _teamFee, uint256 _feeDenominator) external onlyAdmin {
         m_ReflectionFee = _reflectionFee;
         m_TeamFee = _teamFee;
         m_TotalFee = _reflectionFee.add(_teamFee);
@@ -598,16 +601,16 @@ contract Trend is IERC20, Auth {
         require(m_TotalFee < m_FeeDenominator/2);
     }
 
-    function setFeeReceiver(address _teamReceiver) external onlyOwner {
+    function setFeeReceiver(address _teamReceiver) external onlyAdmin {
         m_TeamReceiver = _teamReceiver;
     }
     
-    function manualSend() external onlyOwner {
+    function manualSend() external onlyAdmin {
         uint256 _contractETHBalance = address(this).balance;
         payable(m_TeamReceiver).transfer(_contractETHBalance);
     }
 
-    function setSwapBackSettings(bool _enabled, uint256 _amount) external onlyOwner {
+    function setSwapBackSettings(bool _enabled, uint256 _amount) external onlyAdmin {
         m_SwapEnabled = _enabled;
         m_SwapThreshold = _amount;
     }
@@ -616,7 +619,7 @@ contract Trend is IERC20, Auth {
         m_Distributor.claimDividend(msg.sender);
     }
     
-    function claimDividend(address _holder) external onlyOwner {
+    function claimDividend(address _holder) external onlyAdmin {
         m_Distributor.claimDividend(_holder);
     }
     
@@ -624,7 +627,7 @@ contract Trend is IERC20, Auth {
         return m_Distributor.getUnpaidEarnings(_shareholder);
     }
 
-    function manualBurn(uint256 _amount) external onlyOwner returns (bool) {
+    function manualBurn(uint256 _amount) external onlyAdmin returns (bool) {
         return _basicTransfer(address(this), DEAD, _amount);
     }
     
@@ -632,7 +635,7 @@ contract Trend is IERC20, Auth {
         return m_TotalSupply.sub(balanceOf(DEAD)).sub(balanceOf(ZERO));
     }
     
-    function setTransferOutLimitPeriod(uint256 _period) external onlyOwner {
+    function setTransferOutLimitPeriod(uint256 _period) external onlyAdmin {
         m_TransferOutLimitPeriod = _period;
     }
 
@@ -640,11 +643,24 @@ contract Trend is IERC20, Auth {
         return m_TransferOutLimitPeriod;
     }
     
-    function setTransferOutLimit(uint256 _limit) external onlyOwner {
+    function setTransferOutLimit(uint256 _limit) external onlyAdmin {
         m_TransferOutLimit = _limit;
     }
 
     function transferOutLimit() external view returns (uint256) {
         return m_TransferOutLimit;
+    }
+
+    function addLiquidity() external onlyAdmin {
+        require(!_isLaunched(), "ALREADY_LAUNCHED");
+
+        m_Router.addLiquidityETH(
+            address(this),
+            balanceOf(address(this)),
+            balanceOf(address(this)),
+            address(this).balance,
+            m_Pair,
+            block.timestamp + 60*10
+        );
     }
 }
