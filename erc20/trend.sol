@@ -217,7 +217,7 @@ contract DividendDistributor is IDividendDistributor {
     function distributeDividend(address _shareholder) internal {
         if(m_Shares[_shareholder].amount == 0){ return; }
 
-        uint256 _amount = getUnpaidEarnings(_shareholder);
+        uint256 _amount = getUnrealizedEarnings(_shareholder);
         if(_amount > 0){
             m_TotalDistributed = m_TotalDistributed.add(_amount);
             m_Shares[_shareholder].totalRealised = m_Shares[_shareholder].totalRealised.add(_amount);
@@ -230,7 +230,7 @@ contract DividendDistributor is IDividendDistributor {
         distributeDividend(_shareholder);
     }
 
-    function getUnpaidEarnings(address _shareholder) public view returns (uint256) {
+    function getUnrealizedEarnings(address _shareholder) public view returns (uint256) {
         if(m_Shares[_shareholder].amount == 0) { 
             return 0; 
         }
@@ -249,7 +249,7 @@ contract DividendDistributor is IDividendDistributor {
         return _share.mul(m_DividendsPerShare).div(m_DividendsPerShareAccuracyFactor);
     }
 
-    function getShareholderRealizedEarnings(address _shareholder) external view returns (uint256) {
+    function getRealizedEarnings(address _shareholder) external view returns (uint256) {
         return m_Shares[_shareholder].totalRealised;
     }
 
@@ -302,9 +302,9 @@ contract Trend is IERC20, Auth {
 
     uint256 private m_InitialBlockLimit = 1;
     
-    uint256 private m_ReflectionFee = 4;
-    uint256 private m_TeamFee = 4;
-    uint256 private m_TotalFee = 8;
+    uint256 private m_ReflectionFee = 2;
+    uint256 private m_TeamFee = 2;
+    uint256 private m_TotalFee = 4;
     uint256 private m_FeeDenominator = 100;
 
     address private m_TeamReceiver;
@@ -610,9 +610,9 @@ contract Trend is IERC20, Auth {
         payable(m_TeamReceiver).transfer(_contractETHBalance);
     }
 
-    function setSwapBackSettings(bool _enabled, uint256 _amount) external onlyAdmin {
+    function setFeeEmitSettings(bool _enabled, uint256 _emissionThresholdAmount) external onlyAdmin {
         m_SwapEnabled = _enabled;
-        m_SwapThreshold = _amount;
+        m_SwapThreshold = _emissionThresholdAmount;
     }
     
     function claimDividend() external {
@@ -624,7 +624,15 @@ contract Trend is IERC20, Auth {
     }
     
     function getUnpaidEarnings(address _shareholder) public view returns (uint256) {
-        return m_Distributor.getUnpaidEarnings(_shareholder);
+        return m_Distributor.getUnrealizedEarnings(_shareholder);
+    }
+    
+    function getPaidEarnings(address _shareholder) public view returns (uint256) {
+        return m_Distributor.getRealizedEarnings(_shareholder);
+    }
+    
+    function getTotalPaidEarnings() public view returns (uint256) {
+        return m_Distributor.getTotalDistributed();
     }
 
     function manualBurn(uint256 _amount) external onlyAdmin returns (bool) {
@@ -649,6 +657,10 @@ contract Trend is IERC20, Auth {
 
     function transferOutLimit() external view returns (uint256) {
         return m_TransferOutLimit;
+    }
+
+    function setTeamReceiver(address _addr) external onlyAdmin {
+        m_TeamReceiver = _addr;
     }
 
     function addLiquidity() external onlyAdmin {
